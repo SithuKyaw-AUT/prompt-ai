@@ -1,25 +1,28 @@
 # prompt-ai 🎬
 
-> Daily scraper for viral AI-generated short videos and their step-by-step prompts.
+> Daily scraper for viral AI-generated short videos and their step-by-step prompts.  
+> **100% free — no API key required.**
 
 Covers **TikTok**, **YouTube Shorts**, **Instagram Reels**, and **X (Twitter)**.  
-Uses Claude + web search to find trending videos and extract (or reconstruct) their prompts.
+Uses DuckDuckGo search to find trending AI videos and extract their prompts.
 
 ---
 
-## Setup
+## Setup (run on your own machine)
 
 ```bash
 # 1. Clone
 git clone https://github.com/SithuKyaw-AUT/prompt-ai.git
 cd prompt-ai
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Install (only one dependency!)
+pip install ddgs
 
-# 3. Set your Anthropic API key
-export ANTHROPIC_API_KEY=sk-ant-...
+# 3. Run
+python src/scraper.py
 ```
+
+That's it. No API key. No account. No cost.
 
 ---
 
@@ -29,10 +32,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ```bash
 python src/scraper.py
 ```
-
 Results are saved to `data/viral_ai_videos_YYYY-MM-DD.json`.
 
-### View the dashboard
+### View results in terminal
 ```bash
 # All platforms
 python src/dashboard.py
@@ -46,54 +48,41 @@ python src/dashboard.py twitter
 
 ---
 
-## Output Format
-
-Each record in the JSON file follows this schema:
+## Output format (JSON)
 
 ```json
 {
   "title": "Hyper-realistic underwater city flythrough",
   "platform": "YouTube Shorts",
-  "creator": "@ai_visuals",
+  "creator": "Unknown",
   "url": "https://youtube.com/shorts/...",
   "ai_tool": "Sora",
   "description": "A sweeping aerial shot through a glowing underwater metropolis...",
   "prompt": {
     "available": true,
     "text": "Cinematic drone shot flying through an underwater city...",
-    "source": "video description",
+    "source": "search snippet",
     "steps": [
       "Step 1: Set the scene — underwater metropolis, bioluminescent lighting",
       "Step 2: Camera movement — slow drone pullback revealing the full city",
       "Step 3: Style — photorealistic, 8K, cinematic colour grading"
     ]
   },
-  "tags": ["underwater", "cinematic", "sora", "viral"],
-  "estimated_views": "4.2M",
-  "date_found": "2025-05-03"
+  "tags": ["sora", "cinematic", "viral", "ai generated"],
+  "estimated_views": "Unknown",
+  "date_found": "2026-05-03"
 }
 ```
-
-### Prompt availability
-
-| `prompt.available` | `prompt.source`      | Meaning                                      |
-|--------------------|----------------------|----------------------------------------------|
-| `true`             | `video description`  | Prompt found in the video's description      |
-| `true`             | `comment`            | Creator shared the prompt in comments        |
-| `true`             | `creator post`       | Prompt shared in a follow-up post            |
-| `false`            | `reconstructed`      | Prompt not public; steps are best-effort     |
-| `false`            | `unavailable`        | No prompt information found                  |
 
 ---
 
 ## Automate daily runs
 
-Add to crontab to run every day at 9 AM:
-
 ```bash
+# Mac/Linux — add to crontab (runs every day at 9am)
 crontab -e
-# Add:
-0 9 * * * cd /path/to/prompt-ai && ANTHROPIC_API_KEY=sk-ant-... python src/scraper.py
+# Add this line:
+0 9 * * * cd /path/to/prompt-ai && python src/scraper.py
 ```
 
 ---
@@ -103,10 +92,10 @@ crontab -e
 ```
 prompt-ai/
 ├── src/
-│   ├── scraper.py       # Main scraper (Claude + web search)
+│   ├── scraper.py       # Main scraper (DuckDuckGo, free)
 │   └── dashboard.py     # Terminal viewer
 ├── data/
 │   └── viral_ai_videos_YYYY-MM-DD.json
-├── requirements.txt
+├── requirements.txt     # Just: ddgs
 └── README.md
 ```
