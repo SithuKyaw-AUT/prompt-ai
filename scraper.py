@@ -4,6 +4,7 @@ Finds viral AI-generated short videos and their prompts
 using DuckDuckGo search — no API key required.
 
 Run this on YOUR OWN MACHINE (not a restricted server).
+Results accumulate in a single file: prompt-ai/data/viral_ai_videos.json
 """
 
 import json
@@ -23,17 +24,22 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+# Always resolve relative to the project root (prompt-ai/), regardless of
+# where you run the script from.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # prompt-ai/
+DATA_DIR     = PROJECT_ROOT / "data"                   # prompt-ai/data/
+JSON_FILE    = DATA_DIR / "viral_ai_videos.json"       # single persistent file
 
-def init_data_dir():
-    """Create data/ folder and today's empty JSON file if they don't exist."""
-    DATA_DIR.mkdir(exist_ok=True)
-    path = DATA_DIR / f"viral_ai_videos_{datetime.date.today().isoformat()}.json"
-    if not path.exists():
-        path.write_text("[]", encoding="utf-8")
-        print(f"  Created {path}")
+def init():
+    """Create prompt-ai/data/ and the JSON file if they don't exist yet."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not JSON_FILE.exists():
+        JSON_FILE.write_text("[]", encoding="utf-8")
+        print(f"  Created {JSON_FILE}")
 
-init_data_dir()
+init()
+
+# ── Search queries ────────────────────────────────────────────────────────────
 
 SEARCH_QUERIES = {
     "TikTok": [
@@ -73,55 +79,67 @@ AI_TOOLS = [
 ]
 
 PLATFORM_DOMAINS = {
-    "TikTok": ["tiktok.com"],
-    "YouTube Shorts": ["youtube.com/shorts", "youtu.be"],
-    "Instagram Reels": ["instagram.com"],
-    "X (Twitter)": ["twitter.com", "x.com"],
+    "TikTok":           ["tiktok.com"],
+    "YouTube Shorts":   ["youtube.com/shorts", "youtu.be"],
+    "Instagram Reels":  ["instagram.com"],
+    "X (Twitter)":      ["twitter.com", "x.com"],
 }
+
+
+# ── File I/O ──────────────────────────────────────────────────────────────────
+
+def load_existing():
+    """Load all records from the single JSON file, handling corruption safely."""
+    try:
+        content = JSON_FILE.read_text(encoding="utf-8").strip()
+        if not content:
+            return []
+        return json.loads(content)
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  WARNING: Corrupted JSON detected ({e}), resetting file to []")
+        JSON_FILE.write_text("[]", encoding="utf-8")
+        return []
+
+def save(records):
+    """Write all records back to the single JSON file."""
+    JSON_FILE.write_text(
+        json.dumps(records, indent=2, ensure_ascii=False),
+        encoding="utf-8"
+    )
+    print(f"  Saved {len(records)} total records -> {JSON_FILE}")
+
+
+# ── Deduplication ─────────────────────────────────────────────────────────────
+
+def make_fingerprint(record):
+    """
+    Stable unique key for a record so we never add the same video twice,
+    even across multiple runs on different days.
+    Priority: URL (stripped of query params) -> normalised title.
+    """
+    url = record.get("url", "").split("?")[0].strip().rstrip("/").lower()
+    if url:
+        return f"url:{url}"
+    title = re.sub(r"\s+", " ", record.get("title", "")).strip().lower()
+    return f"title:{title}"
+
+def deduplicate(records):
+    """Remove duplicates, keeping the first occurrence of each fingerprint."""
+    seen = set()
+    unique = []
+    for r in records:
+        fp = make_fingerprint(r)
+        if not fp or fp in seen:
+            continue
+        seen.add(fp)
+        unique.append(r)
+    return unique
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def today():
     return datetime.date.today().isoformat()
-
-def output_path():
-    return DATA_DIR / f"viral_ai_videos_{today()}.json"
-
-def load_existing():
-    path = output_path()
-    if not path.exists():
-        return []
-    try:
-        content = path.read_text(encoding="utf-8").strip()
-        if not content:
-            return []
-        return json.loads(content)
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f"  ⚠ Corrupted JSON detected ({e}), resetting file to []")
-        path.write_text("[]", encoding="utf-8")
-        return []
-
-def save(records):
-    path = output_path()
-    with open(path, "w") as f:
-        json.dump(records, f, indent=2, ensure_ascii=False)
-    print(f"  ✓ Saved {len(records)} records → {path}")
-
-def deduplicate(records):
-    seen_urls, seen_titles = set(), set()
-    unique = []
-    for r in records:
-        url = r.get("url", "").split("?")[0]
-        title = r.get("title", "").lower().strip()
-        if not title or title in seen_titles:
-            continue
-        if url and url in seen_urls:
-            continue
-        seen_urls.add(url)
-        seen_titles.add(title)
-        unique.append(r)
-    return unique
 
 def detect_platform(url):
     for platform, domains in PLATFORM_DOMAINS.items():
@@ -145,10 +163,9 @@ def extract_prompt_hints(text):
     ]
     found = []
     for pattern in prompt_patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        found.extend(matches)
+        found.extend(re.findall(pattern, text, re.IGNORECASE))
 
-    has_prompt_keywords = any(
+    has_keywords = any(
         kw in text.lower()
         for kw in ["prompt", "step by step", "tutorial", "how to", "recreate", "settings"]
     )
@@ -160,7 +177,7 @@ def extract_prompt_hints(text):
             "source": "search snippet",
             "steps": [s.strip() for s in found[:5] if len(s.strip()) > 15],
         }
-    elif has_prompt_keywords:
+    if has_keywords:
         return {
             "available": False,
             "text": None,
@@ -174,15 +191,15 @@ def extract_prompt_hints(text):
     return {"available": False, "text": None, "source": "unavailable", "steps": []}
 
 def extract_tags(text):
-    tags = []
+    tags = set()
     for tool in AI_TOOLS:
         if tool.lower() in text.lower():
-            tags.append(tool.lower())
+            tags.add(tool.lower())
     for kw in ["viral", "cinematic", "realistic", "animation", "tutorial",
                "trending", "ai art", "generated", "timelapse", "slow motion"]:
         if kw in text.lower():
-            tags.append(kw)
-    return list(set(tags))[:8]
+            tags.add(kw)
+    return list(tags)[:8]
 
 def is_ai_video_result(title, snippet):
     text = (title + " " + snippet).lower()
@@ -199,14 +216,14 @@ def ddg_search(query, max_results=8):
             results = list(ddgs.text(query, max_results=max_results))
             return [
                 {
-                    "title": r.get("title", ""),
-                    "url":   r.get("href", ""),
+                    "title":   r.get("title", ""),
+                    "url":     r.get("href", ""),
                     "snippet": r.get("body", ""),
                 }
                 for r in results
             ]
     except Exception as e:
-        print(f"    ⚠ Search error: {e}")
+        print(f"    Search error: {e}")
         return []
 
 
@@ -217,26 +234,25 @@ def build_record(title, url, snippet, fallback_platform):
     if platform == "Unknown":
         platform = fallback_platform
     return {
-        "title": title,
-        "platform": platform,
-        "creator": "Unknown",
-        "url": url,
-        "ai_tool": detect_ai_tool(title + " " + snippet),
-        "description": snippet,
-        "prompt": extract_prompt_hints(snippet),
-        "tags": extract_tags(title + " " + snippet),
+        "title":           title,
+        "platform":        platform,
+        "creator":         "Unknown",
+        "url":             url,
+        "ai_tool":         detect_ai_tool(title + " " + snippet),
+        "description":     snippet,
+        "prompt":          extract_prompt_hints(snippet),
+        "tags":            extract_tags(title + " " + snippet),
         "estimated_views": "Unknown",
-        "date_found": today(),
+        "date_found":      today(),
     }
 
 def scrape_platform(platform, queries):
     records = []
     for query in queries:
-        print(f"  🔍 {query[:70]}...")
-        results = ddg_search(query)
-        for r in results:
-            title = r["title"].strip()
-            url = r["url"].strip()
+        print(f"  Searching: {query[:72]}...")
+        for r in ddg_search(query):
+            title   = r["title"].strip()
+            url     = r["url"].strip()
             snippet = r["snippet"].strip()
             if not title or not url:
                 continue
@@ -248,34 +264,30 @@ def scrape_platform(platform, queries):
 
 def scrape_prompt_focused():
     records = []
-    print("\n🎯 Prompt-focused pass...")
+    print("\nPrompt-focused pass...")
     for query in PROMPT_QUERIES:
-        print(f"  🔍 {query[:70]}...")
-        results = ddg_search(query, max_results=10)
-        for r in results:
-            title = r["title"].strip()
-            url = r["url"].strip()
+        print(f"  Searching: {query[:72]}...")
+        for r in ddg_search(query, max_results=10):
+            title   = r["title"].strip()
+            url     = r["url"].strip()
             snippet = r["snippet"].strip()
             if not title or not url:
                 continue
-            platform = detect_platform(url)
-            if platform == "Unknown":
-                platform = "Web / Blog"
+            platform    = detect_platform(url) or "Web / Blog"
             prompt_data = extract_prompt_hints(snippet)
-            # For generic web results, only keep if there's prompt content
             if not prompt_data["available"] and platform == "Web / Blog":
                 continue
             records.append({
-                "title": title,
-                "platform": platform,
-                "creator": "Unknown",
-                "url": url,
-                "ai_tool": detect_ai_tool(title + " " + snippet),
-                "description": snippet,
-                "prompt": prompt_data,
-                "tags": extract_tags(title + " " + snippet),
+                "title":           title,
+                "platform":        platform,
+                "creator":         "Unknown",
+                "url":             url,
+                "ai_tool":         detect_ai_tool(title + " " + snippet),
+                "description":     snippet,
+                "prompt":          prompt_data,
+                "tags":            extract_tags(title + " " + snippet),
                 "estimated_views": "Unknown",
-                "date_found": today(),
+                "date_found":      today(),
             })
         time.sleep(1.0)
     return records
@@ -284,30 +296,36 @@ def scrape_prompt_focused():
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run():
-    print("\n╔══════════════════════════════════════════╗")
-    print("║  prompt-ai  •  Free Scraper (No API Key) ║")
-    print("╚══════════════════════════════════════════╝\n")
+    print("\n=============================================")
+    print("  prompt-ai  -  Free Scraper (No API Key)")
+    print("=============================================\n")
+    print(f"  Data file : {JSON_FILE}\n")
 
+    # Load everything already in the file (all previous runs)
     all_records = load_existing()
-    print(f"Loaded {len(all_records)} existing records for today.\n")
+    before = len(all_records)
+    print(f"  Existing records : {before}\n")
+
+    new_records = []
 
     for platform, queries in SEARCH_QUERIES.items():
-        print(f"\n📱 {platform}")
-        new = scrape_platform(platform, queries)
-        all_records.extend(new)
-        all_records = deduplicate(all_records)
-        save(all_records)
+        print(f"\n[ {platform} ]")
+        new_records.extend(scrape_platform(platform, queries))
 
-    prompt_records = scrape_prompt_focused()
-    all_records.extend(prompt_records)
-    all_records = deduplicate(all_records)
+    new_records.extend(scrape_prompt_focused())
+
+    # Merge existing + new, deduplicate the whole lot
+    all_records = deduplicate(all_records + new_records)
+    added = len(all_records) - before
+
     save(all_records)
 
     with_prompts = sum(1 for r in all_records if r["prompt"]["available"])
-    print(f"\n✅ Done!")
-    print(f"   Total videos : {len(all_records)}")
-    print(f"   With prompts : {with_prompts}")
-    print(f"   Output       : {output_path()}\n")
+    print(f"\nDone!")
+    print(f"  New records added : {added}")
+    print(f"  Total records     : {len(all_records)}")
+    print(f"  With prompts      : {with_prompts}")
+    print(f"  File              : {JSON_FILE}\n")
 
 if __name__ == "__main__":
     run()
