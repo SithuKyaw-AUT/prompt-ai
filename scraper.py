@@ -90,10 +90,17 @@ def output_path():
 
 def load_existing():
     path = output_path()
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return []
+    if not path.exists():
+        return []
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+        if not content:
+            return []
+        return json.loads(content)
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  ⚠ Corrupted JSON detected ({e}), resetting file to []")
+        path.write_text("[]", encoding="utf-8")
+        return []
 
 def save(records):
     path = output_path()
