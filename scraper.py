@@ -24,7 +24,16 @@ except ImportError:
 # ── Config ────────────────────────────────────────────────────────────────────
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+
+def init_data_dir():
+    """Create data/ folder and today's empty JSON file if they don't exist."""
+    DATA_DIR.mkdir(exist_ok=True)
+    path = DATA_DIR / f"viral_ai_videos_{datetime.date.today().isoformat()}.json"
+    if not path.exists():
+        path.write_text("[]", encoding="utf-8")
+        print(f"  Created {path}")
+
+init_data_dir()
 
 SEARCH_QUERIES = {
     "TikTok": [
