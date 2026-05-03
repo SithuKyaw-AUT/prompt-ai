@@ -24,25 +24,24 @@ except ImportError:
 
 # ── Path config ───────────────────────────────────────────────────────────────
 #
-# scraper.py lives at:  prompt-ai/src/scraper.py
-# We want data at:      prompt-ai/data/viral_ai_videos.json
+# Works no matter how you run the script:
+#   python src/scraper.py        (from prompt-ai/)
+#   python scraper.py            (from prompt-ai/src/)
+#   python prompt-ai/src/scraper.py  (from anywhere)
 #
-# Path(__file__).resolve() always gives the absolute path of THIS file,
-# regardless of where you run python from.
+# scraper.py is in either prompt-ai/ or prompt-ai/src/.
+# data/ must always be inside prompt-ai/.
 #
-#   .parent      → prompt-ai/src/
-#   .parent.parent → prompt-ai/          ← PROJECT_ROOT
-#
-SRC_DIR      = Path(__file__).resolve().parent          # prompt-ai/src/
-PROJECT_ROOT = SRC_DIR.parent                           # prompt-ai/
-DATA_DIR     = PROJECT_ROOT / "data"                    # prompt-ai/data/
-JSON_FILE    = DATA_DIR / "viral_ai_videos.json"        # single persistent file
+_THIS_FILE = Path(__file__).resolve()
 
-# Safety check — catch misconfigured paths early
-assert PROJECT_ROOT.name == "prompt-ai", (
-    f"\nERROR: Expected project root to be 'prompt-ai/' but got '{PROJECT_ROOT}'.\n"
-    f"Make sure scraper.py is inside prompt-ai/src/ and run from anywhere."
-)
+# If this file is inside a "src" folder, go up two levels; otherwise one.
+if _THIS_FILE.parent.name == "src":
+    PROJECT_ROOT = _THIS_FILE.parent.parent   # prompt-ai/src/scraper.py → prompt-ai/
+else:
+    PROJECT_ROOT = _THIS_FILE.parent          # prompt-ai/scraper.py     → prompt-ai/
+
+DATA_DIR  = PROJECT_ROOT / "data"             # prompt-ai/data/
+JSON_FILE = DATA_DIR / "viral_ai_videos.json" # single persistent file
 
 def init():
     """Create prompt-ai/data/ and the JSON file if they don't exist yet."""
