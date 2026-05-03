@@ -22,13 +22,27 @@ except ImportError:
         "Then re-run:              python src/scraper.py"
     )
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# ── Path config ───────────────────────────────────────────────────────────────
+#
+# scraper.py lives at:  prompt-ai/src/scraper.py
+# We want data at:      prompt-ai/data/viral_ai_videos.json
+#
+# Path(__file__).resolve() always gives the absolute path of THIS file,
+# regardless of where you run python from.
+#
+#   .parent      → prompt-ai/src/
+#   .parent.parent → prompt-ai/          ← PROJECT_ROOT
+#
+SRC_DIR      = Path(__file__).resolve().parent          # prompt-ai/src/
+PROJECT_ROOT = SRC_DIR.parent                           # prompt-ai/
+DATA_DIR     = PROJECT_ROOT / "data"                    # prompt-ai/data/
+JSON_FILE    = DATA_DIR / "viral_ai_videos.json"        # single persistent file
 
-# Always resolve relative to the project root (prompt-ai/), regardless of
-# where you run the script from.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent  # prompt-ai/
-DATA_DIR     = PROJECT_ROOT / "data"                   # prompt-ai/data/
-JSON_FILE    = DATA_DIR / "viral_ai_videos.json"       # single persistent file
+# Safety check — catch misconfigured paths early
+assert PROJECT_ROOT.name == "prompt-ai", (
+    f"\nERROR: Expected project root to be 'prompt-ai/' but got '{PROJECT_ROOT}'.\n"
+    f"Make sure scraper.py is inside prompt-ai/src/ and run from anywhere."
+)
 
 def init():
     """Create prompt-ai/data/ and the JSON file if they don't exist yet."""
@@ -96,7 +110,7 @@ def load_existing():
             return []
         return json.loads(content)
     except (json.JSONDecodeError, ValueError) as e:
-        print(f"  WARNING: Corrupted JSON detected ({e}), resetting file to []")
+        print(f"  WARNING: Corrupted JSON ({e}), resetting file to []")
         JSON_FILE.write_text("[]", encoding="utf-8")
         return []
 
@@ -113,7 +127,7 @@ def save(records):
 
 def make_fingerprint(record):
     """
-    Stable unique key for a record so we never add the same video twice,
+    Stable unique key per record so we never add the same video twice,
     even across multiple runs on different days.
     Priority: URL (stripped of query params) -> normalised title.
     """
@@ -124,7 +138,7 @@ def make_fingerprint(record):
     return f"title:{title}"
 
 def deduplicate(records):
-    """Remove duplicates, keeping the first occurrence of each fingerprint."""
+    """Remove duplicates keeping the first occurrence of each fingerprint."""
     seen = set()
     unique = []
     for r in records:
@@ -298,8 +312,9 @@ def scrape_prompt_focused():
 def run():
     print("\n=============================================")
     print("  prompt-ai  -  Free Scraper (No API Key)")
-    print("=============================================\n")
-    print(f"  Data file : {JSON_FILE}\n")
+    print("=============================================")
+    print(f"\n  Project root : {PROJECT_ROOT}")
+    print(f"  Data file    : {JSON_FILE}\n")
 
     # Load everything already in the file (all previous runs)
     all_records = load_existing()
